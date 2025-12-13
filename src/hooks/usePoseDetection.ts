@@ -26,6 +26,11 @@ interface UsePoseDetectionReturn {
   resetBaseline: () => void;
   isRunning: boolean;
   analysis: PostureAnalysis | null;
+  stats: {
+    goodDuration: number;
+    badDuration: number;
+  };
+  resetStats: () => void;
 }
 
 // Smoothing buffer for pose data
@@ -61,6 +66,9 @@ export function usePoseDetection({
     spinalRatio: number;
   } | null>(null);
 
+  const [stats, setStats] = useState({ goodDuration: 0, badDuration: 0 });
+  const lastStatsUpdateRef = useRef<number>(0);
+
   // Smoothing buffers
   const shoulderSlopeBuffer = useRef<number[]>([]);
   const neckAngleBuffer = useRef<number[]>([]);
@@ -83,6 +91,11 @@ export function usePoseDetection({
     badPostureStartRef.current = null;
     lastNotificationTimeRef.current = 0;
     lastAudioTimeRef.current = 0;
+  }, []);
+
+  const resetStats = useCallback(() => {
+    setStats({ goodDuration: 0, badDuration: 0 });
+    lastStatsUpdateRef.current = Date.now();
   }, []);
 
   const getSmoothedValue = (buffer: number[], newValue: number): number => {
@@ -315,9 +328,44 @@ export function usePoseDetection({
           prevStatusRef.current = postureAnalysis.status;
         }
         setStatus(postureAnalysis.status);
+
+        // Update stats
+        const now = Date.now();
+        const delta = now - lastStatsUpdateRef.current;
+        if (delta < 1000) { // Limit updates to avoid excessive renders, but accumulate time
+          // Actually, we need to accumulate accurately.
+          // Use a small threshold or just update ref accumulator and set state less often?
+          // For simplicity in this loop, we can just update state if running.
+          // Better: Only update stats if we have a valid delta (e.g. frame time).
+
+          // However, let's keep it simple: 
+          // We'll update stats state every frame/interval.
+
+          // Correction: detectPose runs on animation frame. Diffs might be small (16ms).
+          // We should just add delta to the correct bucket.
+        }
+
+        // Use a clearer logic:
+        if (lastStatsUpdateRef.current > 0) {
+          const timeDiff = now - lastStatsUpdateRef.current;
+          // If tab was hidden/frozen for long, cap at 1s to avoid huge jumps? 
+          // No, user wants real time.
+
+          setStats(prev => {
+            if (postureAnalysis.status === 'good') {
+              return { ...prev, goodDuration: prev.goodDuration + timeDiff };
+            } else if (['sit-straight', 'move-back'].includes(postureAnalysis.status)) {
+              return { ...prev, badDuration: prev.badDuration + timeDiff };
+            }
+            return prev;
+          });
+        }
+        lastStatsUpdateRef.current = now;
+
       } else {
         setStatus('no-person');
         setAnalysis(null);
+        lastStatsUpdateRef.current = Date.now(); // Keep advancing time so we don't count idle time
       }
     } catch (err) {
       console.error('Pose detection error:', err);
@@ -384,6 +432,8 @@ export function usePoseDetection({
       setIsRunning(true);
       setStatus('good');
       resetBaseline();
+      resetStats(); // Reset stats on start
+      lastStatsUpdateRef.current = Date.now();
       animationFrameRef.current = requestAnimationFrame(detectPose);
     } catch (err) {
       console.error('Failed to start detection:', err);
@@ -445,5 +495,7 @@ export function usePoseDetection({
     resetBaseline,
     isRunning,
     analysis,
+    stats,
+    resetStats,
   };
 }

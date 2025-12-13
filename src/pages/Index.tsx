@@ -5,6 +5,7 @@ import { CameraView } from '@/components/CameraView';
 import { PostureStatus } from '@/components/PostureStatus';
 import { ControlPanel } from '@/components/ControlPanel';
 import { Tips } from '@/components/Tips';
+import { StatsCard } from '@/components/StatsCard';
 import { usePoseDetection } from '@/hooks/usePoseDetection';
 import { usePostureAlerts } from '@/hooks/usePostureAlerts';
 import { toast } from 'sonner';
@@ -46,6 +47,8 @@ const Index = () => {
     resetBaseline,
     isRunning,
     analysis,
+    stats,
+    resetStats,
   } = usePoseDetection({
     sensitivity,
     onStatusChange: handleStatusChange,
@@ -120,6 +123,7 @@ const Index = () => {
             {/* Right Panel - Status and Controls */}
             <div className="space-y-6 lg:col-span-2">
               <PostureStatus status={status} analysis={analysis} />
+
               <ControlPanel
                 sensitivity={sensitivity}
                 onSensitivityChange={setSensitivity}
@@ -132,6 +136,7 @@ const Index = () => {
                 onResetBaseline={handleResetBaseline}
                 isRunning={isRunning}
               />
+              <StatsCard stats={stats} onReset={resetStats} />
               <Tips />
             </div>
           </div>
