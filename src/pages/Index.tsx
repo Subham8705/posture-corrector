@@ -94,7 +94,7 @@ const Index = () => {
   return (
     <>
       <Helmet>
-        <title>PostureGuard - Real-Time Posture Corrector</title>
+        <title>PosturePal - Real-Time Posture Corrector</title>
         <meta
           name="description"
           content="Monitor and improve your posture in real-time using your webcam. Get instant feedback and alerts when you slouch."
