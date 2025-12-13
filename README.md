@@ -21,13 +21,6 @@
 - **Tailwind CSS**: Modern, responsive styling.
 - **Framer Motion**: Smooth, beautiful animations.
 
-## Getting Started
-
-1.  Clone the repository.
-2.  Install dependencies: `npm install`
-3.  Start dev server: `npm run dev`
-4.  Open `http://localhost:8080` (or the port shown in your terminal).
-
 ## Credits
 
 **Made by Subham**
