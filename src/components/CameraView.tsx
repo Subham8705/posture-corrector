@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Video, VideoOff, Loader2 } from 'lucide-react';
+import { Video, VideoOff, Loader2, RotateCcw } from 'lucide-react';
 import { forwardRef } from 'react';
 import type { PostureStatus } from '@/hooks/usePoseDetection';
 
@@ -11,6 +11,7 @@ interface CameraViewProps {
   status: PostureStatus;
   onStart: () => void;
   onStop: () => void;
+  onRecalibrate: () => void;
 }
 
 const statusBorderColors = {
@@ -22,7 +23,7 @@ const statusBorderColors = {
 };
 
 export const CameraView = forwardRef<HTMLDivElement, CameraViewProps>(
-  ({ videoRef, canvasRef, isRunning, isLoading, status, onStart, onStop }, ref) => {
+  ({ videoRef, canvasRef, isRunning, isLoading, status, onStart, onStop, onRecalibrate }, ref) => {
     const ringColor = isRunning ? statusBorderColors[status] : 'ring-border';
 
     return (
@@ -83,17 +84,32 @@ export const CameraView = forwardRef<HTMLDivElement, CameraViewProps>(
 
           {/* Live indicator */}
           {isRunning && (
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-card/90 px-3 py-1.5 backdrop-blur-sm"
-            >
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-danger opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-status-danger" />
-              </span>
-              <span className="text-sm font-medium">LIVE</span>
-            </motion.div>
+            <>
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-card/90 px-3 py-1.5 backdrop-blur-sm"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-danger opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-status-danger" />
+                </span>
+                <span className="text-sm font-medium">LIVE</span>
+              </motion.div>
+
+              <motion.button
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={onRecalibrate}
+                className="absolute right-4 top-4 flex items-center gap-2 rounded-full bg-card/90 px-3 py-1.5 backdrop-blur-sm transition-colors hover:bg-card text-sm font-medium"
+                title="Recalibrate Posture"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span className="hidden sm:inline">Recalibrate</span>
+              </motion.button>
+            </>
           )}
         </div>
 
@@ -104,11 +120,10 @@ export const CameraView = forwardRef<HTMLDivElement, CameraViewProps>(
             whileTap={{ scale: 0.98 }}
             onClick={isRunning ? onStop : onStart}
             disabled={isLoading}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3 font-medium transition-colors ${
-              isRunning
-                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            } disabled:cursor-not-allowed disabled:opacity-50`}
+            className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3 font-medium transition-colors ${isRunning
+              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              } disabled:cursor-not-allowed disabled:opacity-50`}
           >
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin" />

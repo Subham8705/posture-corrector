@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Header } from '@/components/Header';
 import { CameraView } from '@/components/CameraView';
@@ -10,7 +10,16 @@ import { usePostureAlerts } from '@/hooks/usePostureAlerts';
 import { toast } from 'sonner';
 
 const Index = () => {
-  const [sensitivity, setSensitivity] = useState(50);
+  const [sensitivity, setSensitivity] = useState(() => {
+    const saved = localStorage.getItem('posture-sensitivity');
+    return saved ? parseInt(saved, 10) : 50;
+  });
+
+  // Persist sensitivity changes
+  useEffect(() => {
+    localStorage.setItem('posture-sensitivity', sensitivity.toString());
+  }, [sensitivity]);
+
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
@@ -104,6 +113,7 @@ const Index = () => {
                 status={status}
                 onStart={handleStart}
                 onStop={handleStop}
+                onRecalibrate={handleResetBaseline}
               />
             </div>
 

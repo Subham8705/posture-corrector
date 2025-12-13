@@ -32,6 +32,7 @@ interface UsePoseDetectionReturn {
 const SMOOTHING_BUFFER_SIZE = 5;
 const BAD_POSTURE_THRESHOLD_MS = 2000;
 const NOTIFICATION_COOLDOWN_MS = 5000;
+const AUDIO_COOLDOWN_MS = 3000;
 
 export function usePoseDetection({
   sensitivity,
@@ -43,6 +44,7 @@ export function usePoseDetection({
   const animationFrameRef = useRef<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const [status, setStatus] = useState<PostureStatus>('initializing');
   const [isLoading, setIsLoading] = useState(false);
@@ -70,16 +72,17 @@ export function usePoseDetection({
   const badPostureStartRef = useRef<number | null>(null);
   const prevStatusRef = useRef<PostureStatus>('initializing');
   const lastNotificationTimeRef = useRef<number>(0);
+  const lastAudioTimeRef = useRef<number>(0);
 
   const resetBaseline = useCallback(() => {
     baselineRef.current = null;
     shoulderSlopeBuffer.current = [];
     neckAngleBuffer.current = [];
     faceSizeBuffer.current = [];
-    headYawBuffer.current = [];
     spinalRatioBuffer.current = [];
     badPostureStartRef.current = null;
     lastNotificationTimeRef.current = 0;
+    lastAudioTimeRef.current = 0;
   }, []);
 
   const getSmoothedValue = (buffer: number[], newValue: number): number => {
@@ -106,6 +109,41 @@ export function usePoseDetection({
       lastNotificationTimeRef.current = Date.now();
     }
   };
+
+  const playAlertSound = useCallback(() => {
+    if (Date.now() - lastAudioTimeRef.current < AUDIO_COOLDOWN_MS) return;
+
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1); // Drop to A4
+
+      gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.1);
+
+      lastAudioTimeRef.current = Date.now();
+    } catch (e) {
+      console.error('Audio playback failed', e);
+    }
+  }, []);
 
   const analyzePosture = useCallback(
     (landmarks: any[]): PostureAnalysis => {
@@ -200,6 +238,7 @@ export function usePoseDetection({
         } else {
           const message = rawStatus === 'move-back' ? 'You are too close to the screen!' : 'Sit up straight!';
           sendNotification(message);
+          playAlertSound();
         }
       } else {
         badPostureStartRef.current = null;
@@ -320,6 +359,11 @@ export function usePoseDetection({
         await videoRef.current.play();
       }
 
+      // Initialize Audio Context on user interaction (start detection)
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+
       // Initialize MediaPipe
       if (!poseLandmarkerRef.current) {
         const vision = await FilesetResolver.forVisionTasks(
@@ -372,6 +416,12 @@ export function usePoseDetection({
     setIsRunning(false);
     setStatus('initializing');
     setAnalysis(null);
+
+    // Close audio context to cleanup
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
   }, []);
 
   // Cleanup on unmount
