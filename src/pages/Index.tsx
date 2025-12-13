@@ -24,17 +24,14 @@ const Index = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
-  const { triggerAlert, notificationPermission, requestNotificationPermission } = usePostureAlerts({
+  // usePostureAlerts used ONLY for permission request logic now
+  const { notificationPermission, requestNotificationPermission } = usePostureAlerts({
     soundEnabled,
     notificationsEnabled,
   });
 
-  const handleStatusChange = useCallback(
-    (status: any, prevStatus: any) => {
-      triggerAlert(status, prevStatus);
-    },
-    [triggerAlert]
-  );
+  // We don't need handleStatusChange to trigger alerts anymore, 
+  // because usePoseDetection handles them internally with the toggles.
 
   const {
     canvasRef,
@@ -51,7 +48,9 @@ const Index = () => {
     resetStats,
   } = usePoseDetection({
     sensitivity,
-    onStatusChange: handleStatusChange,
+    soundEnabled,
+    notificationsEnabled,
+    // onStatusChange removed as it was only used for alerts
   });
 
   const handleStart = async () => {

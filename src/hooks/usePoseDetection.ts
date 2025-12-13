@@ -12,6 +12,8 @@ interface PostureAnalysis {
 
 interface UsePoseDetectionOptions {
   sensitivity: number; // 0-100
+  soundEnabled: boolean;
+  notificationsEnabled: boolean;
   onStatusChange?: (status: PostureStatus, prevStatus: PostureStatus) => void;
 }
 
@@ -41,6 +43,8 @@ const AUDIO_COOLDOWN_MS = 3000;
 
 export function usePoseDetection({
   sensitivity,
+  soundEnabled,
+  notificationsEnabled,
   onStatusChange,
 }: UsePoseDetectionOptions): UsePoseDetectionReturn {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -110,6 +114,7 @@ export function usePoseDetection({
   };
 
   const sendNotification = (message: string) => {
+    if (!notificationsEnabled) return;
     if (
       'Notification' in window &&
       Notification.permission === 'granted' &&
@@ -126,6 +131,7 @@ export function usePoseDetection({
   };
 
   const playAlertSound = useCallback(() => {
+    if (!soundEnabled) return;
     if (Date.now() - lastAudioTimeRef.current < AUDIO_COOLDOWN_MS) return;
 
     try {
@@ -287,7 +293,7 @@ export function usePoseDetection({
         confidence,
       };
     },
-    [sensitivity, playAlertSound]
+    [sensitivity, playAlertSound, notificationsEnabled]
   );
 
   const detectPose = useCallback(() => {
