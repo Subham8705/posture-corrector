@@ -11,11 +11,20 @@ export function Header() {
     >
       <div className="container mx-auto flex items-center justify-between px-4 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-            <Activity className="h-5 w-5 text-primary-foreground" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-background overflow-hidden ring-1 ring-border">
+            <img
+              src="https://res.cloudinary.com/dpa0sb1tm/image/upload/v1750759481/logobg_hu36yx.webp"
+              alt="PosturePal Logo"
+              className="h-full w-full object-cover"
+            />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-foreground">PostureGuard</h1>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-xl font-bold text-foreground">PosturePal</h1>
+              <span className="text-[10px] sm:text-xs text-muted-foreground font-medium">
+                Made by Subham
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground">Real-time posture monitoring</p>
           </div>
         </div>

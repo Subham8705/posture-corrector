@@ -98,9 +98,9 @@ export function usePoseDetection({
       document.visibilityState === 'hidden' &&
       Date.now() - lastNotificationTimeRef.current > NOTIFICATION_COOLDOWN_MS
     ) {
-      new Notification('Posture Pal', {
+      new Notification('PosturePal', {
         body: message,
-        icon: '/icon.png',
+        icon: 'https://cdn-icons-png.flaticon.com/512/2966/2966486.png', // Generic posture/health icon
         silent: true,
       });
       lastNotificationTimeRef.current = Date.now();
