@@ -31,6 +31,7 @@ interface UsePoseDetectionReturn {
 // Smoothing buffer for pose data
 const SMOOTHING_BUFFER_SIZE = 5;
 const BAD_POSTURE_THRESHOLD_MS = 2000;
+const NOTIFICATION_COOLDOWN_MS = 5000;
 
 export function usePoseDetection({
   sensitivity,
@@ -40,6 +41,7 @@ export function usePoseDetection({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const [status, setStatus] = useState<PostureStatus>('initializing');
@@ -53,23 +55,28 @@ export function usePoseDetection({
     shoulderSlope: number;
     neckAngle: number;
     faceSize: number;
+    headYaw: number;
   } | null>(null);
 
   // Smoothing buffers
   const shoulderSlopeBuffer = useRef<number[]>([]);
   const neckAngleBuffer = useRef<number[]>([]);
   const faceSizeBuffer = useRef<number[]>([]);
+  const headYawBuffer = useRef<number[]>([]);
 
-  // Bad posture timing
+  // Bad posture timing and notification
   const badPostureStartRef = useRef<number | null>(null);
   const prevStatusRef = useRef<PostureStatus>('initializing');
+  const lastNotificationTimeRef = useRef<number>(0);
 
   const resetBaseline = useCallback(() => {
     baselineRef.current = null;
     shoulderSlopeBuffer.current = [];
     neckAngleBuffer.current = [];
     faceSizeBuffer.current = [];
+    headYawBuffer.current = [];
     badPostureStartRef.current = null;
+    lastNotificationTimeRef.current = 0;
   }, []);
 
   const getSmoothedValue = (buffer: number[], newValue: number): number => {
@@ -79,6 +86,22 @@ export function usePoseDetection({
     }
     const sum = buffer.reduce((a, b) => a + b, 0);
     return sum / buffer.length;
+  };
+
+  const sendNotification = (message: string) => {
+    if (
+      'Notification' in window &&
+      Notification.permission === 'granted' &&
+      document.visibilityState === 'hidden' &&
+      Date.now() - lastNotificationTimeRef.current > NOTIFICATION_COOLDOWN_MS
+    ) {
+      new Notification('Posture Pal', {
+        body: message,
+        icon: '/icon.png',
+        silent: true,
+      });
+      lastNotificationTimeRef.current = Date.now();
+    }
   };
 
   const analyzePosture = useCallback(
@@ -96,9 +119,13 @@ export function usePoseDetection({
 
       // Calculate neck angle (head forward position relative to shoulders)
       const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
-      const earMidX = (leftEar.x + rightEar.x) / 2;
       const rawNeckAngle = nose.x - shoulderMidX;
       const neckAngle = getSmoothedValue(neckAngleBuffer.current, Math.abs(rawNeckAngle));
+
+      // Calculate head yaw (nose position relative to ears center)
+      const earMidX = (leftEar.x + rightEar.x) / 2;
+      const rawHeadYaw = nose.x - earMidX;
+      const headYaw = getSmoothedValue(headYawBuffer.current, Math.abs(rawHeadYaw));
 
       // Calculate face size (proxy for distance from screen)
       const rawFaceSize = Math.abs(leftEar.x - rightEar.x);
@@ -113,33 +140,37 @@ export function usePoseDetection({
           shoulderSlope,
           neckAngle,
           faceSize,
+          headYaw,
         };
       }
 
       // Sensitivity affects thresholds (higher sensitivity = stricter)
       const sensitivityMultiplier = 1 + (sensitivity - 50) / 100;
-      
+
       // Thresholds relative to baseline
-      const baseline = baselineRef.current || { shoulderSlope: 0.03, neckAngle: 0.05, faceSize: 0.15 };
-      
+      const baseline = baselineRef.current || { shoulderSlope: 0.03, neckAngle: 0.05, faceSize: 0.15, headYaw: 0.02 };
+
       const shoulderThreshold = 0.04 / sensitivityMultiplier;
       const neckThreshold = 0.06 / sensitivityMultiplier;
+      const headYawThreshold = 0.03 / sensitivityMultiplier;
       const distanceThreshold = baseline.faceSize * 1.4 / sensitivityMultiplier;
 
       // Determine raw status
       let rawStatus: PostureStatus = 'good';
-      
+
       if (faceSize > distanceThreshold) {
         rawStatus = 'move-back';
       } else if (shoulderSlope > baseline.shoulderSlope + shoulderThreshold) {
         rawStatus = 'sit-straight';
       } else if (neckAngle > baseline.neckAngle + neckThreshold) {
         rawStatus = 'sit-straight';
+      } else if (headYaw > baseline.headYaw + headYawThreshold) {
+        rawStatus = 'sit-straight';
       }
 
       // Apply time threshold for bad posture
       let finalStatus = rawStatus;
-      
+
       if (rawStatus !== 'good') {
         if (!badPostureStartRef.current) {
           badPostureStartRef.current = Date.now();
@@ -147,6 +178,9 @@ export function usePoseDetection({
         const badDuration = Date.now() - badPostureStartRef.current;
         if (badDuration < BAD_POSTURE_THRESHOLD_MS) {
           finalStatus = 'good'; // Not bad long enough
+        } else {
+          const message = rawStatus === 'move-back' ? 'You are too close to the screen!' : 'Sit up straight!';
+          sendNotification(message);
         }
       } else {
         badPostureStartRef.current = null;
@@ -186,10 +220,10 @@ export function usePoseDetection({
 
       if (results.landmarks && results.landmarks.length > 0) {
         const landmarks = results.landmarks[0];
-        
+
         // Draw skeleton
         const drawingUtils = new DrawingUtils(ctx);
-        
+
         // Custom styling for connections
         drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
           color: 'rgba(16, 185, 129, 0.7)',
@@ -201,12 +235,12 @@ export function usePoseDetection({
           const isKeyPoint = [0, 7, 8, 11, 12].includes(index);
           const radius = isKeyPoint ? 8 : 4;
           const color = isKeyPoint ? 'hsl(158, 64%, 42%)' : 'rgba(16, 185, 129, 0.5)';
-          
+
           ctx.beginPath();
           ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, radius, 0, 2 * Math.PI);
           ctx.fillStyle = color;
           ctx.fill();
-          
+
           if (isKeyPoint) {
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
@@ -231,13 +265,25 @@ export function usePoseDetection({
       console.error('Pose detection error:', err);
     }
 
-    animationFrameRef.current = requestAnimationFrame(detectPose);
+    if (document.hidden) {
+      timerRef.current = setTimeout(detectPose, 1000);
+    } else {
+      animationFrameRef.current = requestAnimationFrame(detectPose);
+    }
   }, [analyzePosture, onStatusChange]);
 
   const startDetection = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
+    // Request Notification Permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission();
+      } catch (e) {
+        console.warn('Notification permission request failed', e);
+      }
+    }
     try {
       // Request camera access
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -288,6 +334,11 @@ export function usePoseDetection({
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
+    }
+
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
 
     if (streamRef.current) {
