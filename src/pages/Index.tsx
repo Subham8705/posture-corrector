@@ -107,7 +107,7 @@ const Index = () => {
         <main className="container mx-auto px-4 py-6">
           <div className="grid gap-6 lg:grid-cols-5">
             {/* Left Panel - Camera View */}
-            <div className="lg:col-span-3">
+            <div className="space-y-6 lg:col-span-3">
               <CameraView
                 videoRef={videoRef}
                 canvasRef={canvasRef}
@@ -118,6 +118,7 @@ const Index = () => {
                 onStop={handleStop}
                 onRecalibrate={handleResetBaseline}
               />
+              <StatsCard stats={stats} onReset={resetStats} />
             </div>
 
             {/* Right Panel - Status and Controls */}
@@ -136,7 +137,6 @@ const Index = () => {
                 onResetBaseline={handleResetBaseline}
                 isRunning={isRunning}
               />
-              <StatsCard stats={stats} onReset={resetStats} />
               <Tips />
             </div>
           </div>
