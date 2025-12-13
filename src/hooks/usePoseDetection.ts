@@ -50,6 +50,8 @@ export function usePoseDetection({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const keepAliveOscillatorRef = useRef<OscillatorNode | null>(null);
+  const keepAliveGainRef = useRef<GainNode | null>(null);
 
   const [status, setStatus] = useState<PostureStatus>('initializing');
   const [isLoading, setIsLoading] = useState(false);
@@ -116,7 +118,7 @@ export function usePoseDetection({
     ) {
       new Notification('PosturePal', {
         body: message,
-        icon: 'https://www.shutterstock.com/image-vector/correct-posture-position-line-icon-260nw-2002371824.jpg', // Generic posture/health icon
+        icon: 'https://www.shutterstock.com/image-vector/correct-posture-position-line-icon-260nw-2002371824.jpg',
         silent: true,
       });
       lastNotificationTimeRef.current = Date.now();
@@ -143,8 +145,8 @@ export function usePoseDetection({
       gainNode.connect(ctx.destination);
 
       oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, ctx.currentTime); // A5
-      oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1); // Drop to A4
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
 
       gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
@@ -158,46 +160,75 @@ export function usePoseDetection({
     }
   }, []);
 
+  const toggleSilentAudio = useCallback((enable: boolean) => {
+    if (enable) {
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const ctx = audioContextRef.current;
+        if (ctx.state === 'suspended') ctx.resume();
+
+        if (!keepAliveOscillatorRef.current) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, ctx.currentTime);
+          gain.gain.setValueAtTime(0.0001, ctx.currentTime); // Inaudible
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+
+          keepAliveOscillatorRef.current = osc;
+          keepAliveGainRef.current = gain;
+        }
+      } catch (e) {
+        console.error('Silent audio failed:', e);
+      }
+    } else {
+      if (keepAliveOscillatorRef.current) {
+        try {
+          keepAliveOscillatorRef.current.stop();
+          keepAliveOscillatorRef.current.disconnect();
+          keepAliveGainRef.current?.disconnect();
+        } catch (e) { /* ignore */ }
+        keepAliveOscillatorRef.current = null;
+        keepAliveGainRef.current = null;
+      }
+    }
+  }, []);
+
   const analyzePosture = useCallback(
     (landmarks: any[]): PostureAnalysis => {
-      // MediaPipe Pose landmark indices
       const leftShoulder = landmarks[11];
       const rightShoulder = landmarks[12];
       const leftEar = landmarks[7];
       const rightEar = landmarks[8];
       const nose = landmarks[0];
 
-      // Calculate shoulder slope (difference in Y between shoulders)
       const rawShoulderSlope = Math.abs(leftShoulder.y - rightShoulder.y);
       const shoulderSlope = getSmoothedValue(shoulderSlopeBuffer.current, rawShoulderSlope);
 
-      // Calculate neck angle (head forward position relative to shoulders)
       const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
       const rawNeckAngle = nose.x - shoulderMidX;
       const neckAngle = getSmoothedValue(neckAngleBuffer.current, Math.abs(rawNeckAngle));
 
-      // Calculate head yaw (nose position relative to ears center)
       const earMidX = (leftEar.x + rightEar.x) / 2;
       const rawHeadYaw = nose.x - earMidX;
       const headYaw = getSmoothedValue(headYawBuffer.current, Math.abs(rawHeadYaw));
 
-      // Calculate face size (proxy for distance from screen)
       const rawFaceSize = Math.abs(leftEar.x - rightEar.x);
       const faceSize = getSmoothedValue(faceSizeBuffer.current, rawFaceSize);
 
-      // Calculate vertical spinal ratio (nose to shoulder vertical distance normalized by face size)
-      // If user slouches, this vertical distance decreases relative to their face width
       const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
-      const rawSpinalDistance = Math.abs(shoulderMidY - nose.y); // Vertical distance
-      // We normalize by face size so moving back/forth doesn't trigger it.
-      // Ratio = Vertical Distance / Horizontal Face Width
+      const rawSpinalDistance = Math.abs(shoulderMidY - nose.y);
       const rawSpinalRatio = rawSpinalDistance / rawFaceSize;
       const spinalRatio = getSmoothedValue(spinalRatioBuffer.current, rawSpinalRatio);
 
-      // Average confidence
       const confidence = (leftShoulder.visibility + rightShoulder.visibility + nose.visibility) / 3;
 
-      // Set baseline if not set
       if (!baselineRef.current && shoulderSlopeBuffer.current.length >= SMOOTHING_BUFFER_SIZE) {
         baselineRef.current = {
           shoulderSlope,
@@ -208,21 +239,15 @@ export function usePoseDetection({
         };
       }
 
-      // Sensitivity affects thresholds (higher sensitivity = stricter)
       const sensitivityMultiplier = 1 + (sensitivity - 50) / 100;
-
-      // Thresholds relative to baseline
       const baseline = baselineRef.current || { shoulderSlope: 0.03, neckAngle: 0.05, faceSize: 0.15, headYaw: 0.02, spinalRatio: 1.5 };
 
       const shoulderThreshold = 0.04 / sensitivityMultiplier;
       const neckThreshold = 0.06 / sensitivityMultiplier;
       const headYawThreshold = 0.03 / sensitivityMultiplier;
-      // Adjusted to be responsive: High sens (1.5) -> ~0.1 (Strict). Low sens (0.5) -> ~0.3 (Loose).
       const spinalRatioThreshold = 0.18 / (sensitivityMultiplier * 1.2);
       const distanceThreshold = baseline.faceSize * 1.4 / sensitivityMultiplier;
 
-
-      // Determine raw status
       let rawStatus: PostureStatus = 'good';
 
       if (faceSize > distanceThreshold) {
@@ -234,11 +259,9 @@ export function usePoseDetection({
       } else if (headYaw > baseline.headYaw + headYawThreshold) {
         rawStatus = 'sit-straight';
       } else if (spinalRatio < baseline.spinalRatio - spinalRatioThreshold) {
-        // Current ratio is significantly less than baseline (implosion/slouching)
         rawStatus = 'sit-straight';
       }
 
-      // Apply time threshold for bad posture
       let finalStatus = rawStatus;
 
       if (rawStatus !== 'good') {
@@ -247,7 +270,7 @@ export function usePoseDetection({
         }
         const badDuration = Date.now() - badPostureStartRef.current;
         if (badDuration < BAD_POSTURE_THRESHOLD_MS) {
-          finalStatus = 'good'; // Not bad long enough
+          finalStatus = 'good';
         } else {
           const message = rawStatus === 'move-back' ? 'You are too close to the screen!' : 'Sit up straight!';
           sendNotification(message);
@@ -264,7 +287,7 @@ export function usePoseDetection({
         confidence,
       };
     },
-    [sensitivity]
+    [sensitivity, playAlertSound]
   );
 
   const detectPose = useCallback(() => {
@@ -279,11 +302,8 @@ export function usePoseDetection({
       return;
     }
 
-    // Match canvas size to video
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-
-    // Clear and draw video frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     try {
@@ -291,17 +311,13 @@ export function usePoseDetection({
 
       if (results.landmarks && results.landmarks.length > 0) {
         const landmarks = results.landmarks[0];
-
-        // Draw skeleton
         const drawingUtils = new DrawingUtils(ctx);
 
-        // Custom styling for connections
         drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
           color: 'rgba(16, 185, 129, 0.7)',
           lineWidth: 3,
         });
 
-        // Draw landmarks with different colors for key points
         landmarks.forEach((landmark, index) => {
           const isKeyPoint = [0, 7, 8, 11, 12].includes(index);
           const radius = isKeyPoint ? 8 : 4;
@@ -319,7 +335,6 @@ export function usePoseDetection({
           }
         });
 
-        // Analyze posture
         const postureAnalysis = analyzePosture(landmarks);
         setAnalysis(postureAnalysis);
 
@@ -329,28 +344,9 @@ export function usePoseDetection({
         }
         setStatus(postureAnalysis.status);
 
-        // Update stats
-        const now = Date.now();
-        const delta = now - lastStatsUpdateRef.current;
-        if (delta < 1000) { // Limit updates to avoid excessive renders, but accumulate time
-          // Actually, we need to accumulate accurately.
-          // Use a small threshold or just update ref accumulator and set state less often?
-          // For simplicity in this loop, we can just update state if running.
-          // Better: Only update stats if we have a valid delta (e.g. frame time).
-
-          // However, let's keep it simple: 
-          // We'll update stats state every frame/interval.
-
-          // Correction: detectPose runs on animation frame. Diffs might be small (16ms).
-          // We should just add delta to the correct bucket.
-        }
-
-        // Use a clearer logic:
         if (lastStatsUpdateRef.current > 0) {
+          const now = Date.now();
           const timeDiff = now - lastStatsUpdateRef.current;
-          // If tab was hidden/frozen for long, cap at 1s to avoid huge jumps? 
-          // No, user wants real time.
-
           setStats(prev => {
             if (postureAnalysis.status === 'good') {
               return { ...prev, goodDuration: prev.goodDuration + timeDiff };
@@ -359,13 +355,15 @@ export function usePoseDetection({
             }
             return prev;
           });
+          lastStatsUpdateRef.current = now;
+        } else {
+          lastStatsUpdateRef.current = Date.now();
         }
-        lastStatsUpdateRef.current = now;
 
       } else {
         setStatus('no-person');
         setAnalysis(null);
-        lastStatsUpdateRef.current = Date.now(); // Keep advancing time so we don't count idle time
+        lastStatsUpdateRef.current = Date.now();
       }
     } catch (err) {
       console.error('Pose detection error:', err);
@@ -382,7 +380,6 @@ export function usePoseDetection({
     setIsLoading(true);
     setError(null);
 
-    // Request Notification Permission
     if ('Notification' in window && Notification.permission === 'default') {
       try {
         await Notification.requestPermission();
@@ -391,7 +388,8 @@ export function usePoseDetection({
       }
     }
     try {
-      // Request camera access
+      toggleSilentAudio(true);
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
@@ -404,15 +402,10 @@ export function usePoseDetection({
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
         await videoRef.current.play();
       }
 
-      // Initialize Audio Context on user interaction (start detection)
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-
-      // Initialize MediaPipe
       if (!poseLandmarkerRef.current) {
         const vision = await FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
@@ -432,16 +425,17 @@ export function usePoseDetection({
       setIsRunning(true);
       setStatus('good');
       resetBaseline();
-      resetStats(); // Reset stats on start
+      resetStats();
       lastStatsUpdateRef.current = Date.now();
-      animationFrameRef.current = requestAnimationFrame(detectPose);
+      detectPose();
     } catch (err) {
       console.error('Failed to start detection:', err);
       setError(err instanceof Error ? err.message : 'Failed to start camera');
+      toggleSilentAudio(false);
     } finally {
       setIsLoading(false);
     }
-  }, [detectPose, resetBaseline]);
+  }, [detectPose, resetBaseline, toggleSilentAudio, resetStats]);
 
   const stopDetection = useCallback(() => {
     if (animationFrameRef.current) {
@@ -466,15 +460,36 @@ export function usePoseDetection({
     setIsRunning(false);
     setStatus('initializing');
     setAnalysis(null);
+    toggleSilentAudio(false);
+  }, [toggleSilentAudio]);
 
-    // Close audio context to cleanup
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-  }, []);
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isRunning) {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+        if (!timerRef.current) {
+          detectPose();
+        }
+      } else if (!document.hidden && isRunning) {
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        if (!animationFrameRef.current) {
+          detectPose();
+        }
+      }
+    };
 
-  // Cleanup on unmount
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isRunning, detectPose]);
+
   useEffect(() => {
     return () => {
       stopDetection();
