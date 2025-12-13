@@ -100,7 +100,7 @@ export function usePoseDetection({
     ) {
       new Notification('PosturePal', {
         body: message,
-        icon: 'https://cdn-icons-png.flaticon.com/512/2966/2966486.png', // Generic posture/health icon
+        icon: 'https://www.shutterstock.com/image-vector/correct-posture-position-line-icon-260nw-2002371824.jpg', // Generic posture/health icon
         silent: true,
       });
       lastNotificationTimeRef.current = Date.now();
