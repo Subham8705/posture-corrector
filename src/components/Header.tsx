@@ -19,13 +19,13 @@ export function Header() {
             <p className="text-xs text-muted-foreground">Real-time posture monitoring</p>
           </div>
         </div>
-        
+
         <nav className="hidden items-center gap-4 sm:flex">
           <span className="rounded-full bg-status-good-bg px-3 py-1 text-xs font-medium text-status-good">
             Web-Based
           </span>
           <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
-            Privacy First
+            Health First
           </span>
         </nav>
       </div>

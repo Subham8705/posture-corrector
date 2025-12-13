@@ -56,6 +56,7 @@ export function usePoseDetection({
     neckAngle: number;
     faceSize: number;
     headYaw: number;
+    spinalRatio: number;
   } | null>(null);
 
   // Smoothing buffers
@@ -63,6 +64,7 @@ export function usePoseDetection({
   const neckAngleBuffer = useRef<number[]>([]);
   const faceSizeBuffer = useRef<number[]>([]);
   const headYawBuffer = useRef<number[]>([]);
+  const spinalRatioBuffer = useRef<number[]>([]);
 
   // Bad posture timing and notification
   const badPostureStartRef = useRef<number | null>(null);
@@ -75,6 +77,7 @@ export function usePoseDetection({
     neckAngleBuffer.current = [];
     faceSizeBuffer.current = [];
     headYawBuffer.current = [];
+    spinalRatioBuffer.current = [];
     badPostureStartRef.current = null;
     lastNotificationTimeRef.current = 0;
   }, []);
@@ -131,6 +134,15 @@ export function usePoseDetection({
       const rawFaceSize = Math.abs(leftEar.x - rightEar.x);
       const faceSize = getSmoothedValue(faceSizeBuffer.current, rawFaceSize);
 
+      // Calculate vertical spinal ratio (nose to shoulder vertical distance normalized by face size)
+      // If user slouches, this vertical distance decreases relative to their face width
+      const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
+      const rawSpinalDistance = Math.abs(shoulderMidY - nose.y); // Vertical distance
+      // We normalize by face size so moving back/forth doesn't trigger it.
+      // Ratio = Vertical Distance / Horizontal Face Width
+      const rawSpinalRatio = rawSpinalDistance / rawFaceSize;
+      const spinalRatio = getSmoothedValue(spinalRatioBuffer.current, rawSpinalRatio);
+
       // Average confidence
       const confidence = (leftShoulder.visibility + rightShoulder.visibility + nose.visibility) / 3;
 
@@ -141,6 +153,7 @@ export function usePoseDetection({
           neckAngle,
           faceSize,
           headYaw,
+          spinalRatio,
         };
       }
 
@@ -148,12 +161,15 @@ export function usePoseDetection({
       const sensitivityMultiplier = 1 + (sensitivity - 50) / 100;
 
       // Thresholds relative to baseline
-      const baseline = baselineRef.current || { shoulderSlope: 0.03, neckAngle: 0.05, faceSize: 0.15, headYaw: 0.02 };
+      const baseline = baselineRef.current || { shoulderSlope: 0.03, neckAngle: 0.05, faceSize: 0.15, headYaw: 0.02, spinalRatio: 1.5 };
 
       const shoulderThreshold = 0.04 / sensitivityMultiplier;
       const neckThreshold = 0.06 / sensitivityMultiplier;
       const headYawThreshold = 0.03 / sensitivityMultiplier;
+      // Adjusted to be responsive: High sens (1.5) -> ~0.1 (Strict). Low sens (0.5) -> ~0.3 (Loose).
+      const spinalRatioThreshold = 0.18 / (sensitivityMultiplier * 1.2);
       const distanceThreshold = baseline.faceSize * 1.4 / sensitivityMultiplier;
+
 
       // Determine raw status
       let rawStatus: PostureStatus = 'good';
@@ -165,6 +181,9 @@ export function usePoseDetection({
       } else if (neckAngle > baseline.neckAngle + neckThreshold) {
         rawStatus = 'sit-straight';
       } else if (headYaw > baseline.headYaw + headYawThreshold) {
+        rawStatus = 'sit-straight';
+      } else if (spinalRatio < baseline.spinalRatio - spinalRatioThreshold) {
+        // Current ratio is significantly less than baseline (implosion/slouching)
         rawStatus = 'sit-straight';
       }
 
