@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision';
+import { usePostureHistory } from './usePostureHistory';
 
 export type PostureStatus = 'good' | 'sit-straight' | 'move-back' | 'initializing' | 'no-person';
 
@@ -33,6 +34,7 @@ interface UsePoseDetectionReturn {
     badDuration: number;
   };
   resetStats: () => void;
+  sessionHistory: Array<{ timestamp: number; score: number }>;
 }
 
 // Smoothing buffer for pose data
@@ -40,6 +42,7 @@ const SMOOTHING_BUFFER_SIZE = 5;
 const BAD_POSTURE_THRESHOLD_MS = 2000;
 const NOTIFICATION_COOLDOWN_MS = 5000;
 const AUDIO_COOLDOWN_MS = 3000;
+const HISTORY_UPDATE_INTERVAL = 1000;
 
 export function usePoseDetection({
   sensitivity,
@@ -62,6 +65,10 @@ export function usePoseDetection({
   const [error, setError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [analysis, setAnalysis] = useState<PostureAnalysis | null>(null);
+  const [sessionHistory, setSessionHistory] = useState<Array<{ timestamp: number; score: number }>>([]);
+
+  const { saveDailyStats } = usePostureHistory();
+  const lastHistoryUpdateRef = useRef<number>(0);
 
   // Baseline values for personalized detection
   const baselineRef = useRef<{
@@ -101,6 +108,7 @@ export function usePoseDetection({
 
   const resetStats = useCallback(() => {
     setStats({ goodDuration: 0, badDuration: 0 });
+    setSessionHistory([]);
     lastStatsUpdateRef.current = Date.now();
   }, []);
 
@@ -354,17 +362,55 @@ export function usePoseDetection({
           const now = Date.now();
           const timeDiff = now - lastStatsUpdateRef.current;
           setStats(prev => {
+            let goodDelta = 0;
+            let badDelta = 0;
             if (postureAnalysis.status === 'good') {
-              return { ...prev, goodDuration: prev.goodDuration + timeDiff };
+              goodDelta = timeDiff;
             } else if (['sit-straight', 'move-back'].includes(postureAnalysis.status)) {
-              return { ...prev, badDuration: prev.badDuration + timeDiff };
+              badDelta = timeDiff;
             }
-            return prev;
+
+            if (goodDelta > 0 || badDelta > 0) {
+              saveDailyStats(goodDelta, badDelta);
+            }
+
+            return {
+              goodDuration: prev.goodDuration + goodDelta,
+              badDuration: prev.badDuration + badDelta
+            };
           });
           lastStatsUpdateRef.current = now;
         } else {
           lastStatsUpdateRef.current = Date.now();
         }
+
+        // Update session history
+        const now = Date.now();
+        if (now - lastHistoryUpdateRef.current > HISTORY_UPDATE_INTERVAL) {
+          const score = postureAnalysis.status === 'good' ? 1 : 0;
+          setSessionHistory(prev => {
+            const newHistory = [...prev, { timestamp: now, score }];
+            // Keep roughly last 10 minutes of detailed history (600 points)
+            if (newHistory.length > 600) return newHistory.slice(-600);
+            return newHistory;
+          });
+
+          // Also save to daily stats roughly every second (accumulated duration)
+          // We calculate differential since last update
+          const timeSinceLastUpdate = now - lastHistoryUpdateRef.current;
+          // Only save if meaningful time passed
+          if (timeSinceLastUpdate < 5000) { // Limit frequency of writes/updates slightly for safety if needed, 
+            // actually let's blindly trust the timeDiff from stats update logic above?
+            // The stats update logic accumulates to state.
+            // Let's use the `timeDiff` calculated above for stats.
+          }
+
+          lastHistoryUpdateRef.current = now;
+        }
+
+        // Persist to local storage periodically (e.g., every 5 seconds) or just piggyback on this loop?
+        // Let's use the stats state accumulation. 
+        // Better: We should pass the Delta time to saveDailyStats.
 
       } else {
         setStatus('no-person');
@@ -518,5 +564,6 @@ export function usePoseDetection({
     analysis,
     stats,
     resetStats,
+    sessionHistory,
   };
 }

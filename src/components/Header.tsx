@@ -20,12 +20,12 @@ export function Header() {
           </div>
           <div>
             <div className="flex items-baseline gap-2">
-              <h1 className="text-xl font-bold text-foreground">PosturePal</h1>
+              <h1 className="text-xl font-bold text-foreground">PosturePal AI</h1>
               <span className="text-[10px] sm:text-xs text-muted-foreground font-medium">
                 Made by Subham
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">Real-time posture monitoring</p>
+            <p className="text-xs text-muted-foreground">AI-Powered Posture Coach</p>
           </div>
         </div>
 

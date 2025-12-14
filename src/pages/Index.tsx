@@ -8,6 +8,7 @@ import { Tips } from '@/components/Tips';
 import { StatsCard } from '@/components/StatsCard';
 import { usePoseDetection } from '@/hooks/usePoseDetection';
 import { usePostureAlerts } from '@/hooks/usePostureAlerts';
+import { PostureGraph } from '@/components/PostureGraph';
 import { toast } from 'sonner';
 
 const Index = () => {
@@ -46,6 +47,7 @@ const Index = () => {
     analysis,
     stats,
     resetStats,
+    sessionHistory,
   } = usePoseDetection({
     sensitivity,
     soundEnabled,
@@ -93,10 +95,10 @@ const Index = () => {
   return (
     <>
       <Helmet>
-        <title>PosturePal - Real-Time Posture Corrector</title>
+        <title>PosturePal AI - Free Real-Time Posture Coach</title>
         <meta
           name="description"
-          content="Monitor and improve your posture in real-time using your webcam. Get instant feedback and alerts when you slouch."
+          content="Improve your posture instantly with PosturePal AI. A free, privacy-first webcam posture corrector that runs entirely in your browser."
         />
       </Helmet>
 
@@ -136,6 +138,11 @@ const Index = () => {
                 onResetBaseline={handleResetBaseline}
                 isRunning={isRunning}
               />
+            </div>
+
+            {/* Full Width - Graphs and Tips */}
+            <div className="lg:col-span-5 space-y-6">
+              <PostureGraph sessionHistory={sessionHistory} />
               <Tips />
             </div>
           </div>
